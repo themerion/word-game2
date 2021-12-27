@@ -1,0 +1,320 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>Game - server version</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        #messages {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px gray dotted;
+            padding: 10px;
+            margin-top: 20px;
+        }
+
+        #messages p {
+            padding: 2px;
+            margin: 0px;
+            animation: addmessage 0.7s linear;
+            color: gray;
+        }
+
+        #messages p:first-child {
+            color: black;
+        }
+
+        #messages .odd {
+            background-color: rgb(235, 240, 241);
+        }
+
+        @media (max-width: 500px) {
+            #messages {
+                padding: 2px;
+                border-width: 0px;
+                border-top-width: 1px;
+            }
+        }
+
+        #team-lead,
+        #normal-player {
+            display: none;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        #team-lead .number {
+            display: inline-block;
+            margin-right: 15px;
+            margin-left: 15px;
+            font-size: 20px;
+        }
+
+        .red {
+            color: red;
+        }
+
+        .blue {
+            color: blue;
+        }
+
+        .green {
+            color: green;
+        }
+
+        .red.revealed {
+            background-color: red;
+            color: white;
+        }
+
+        .blue.revealed {
+            background-color: blue;
+            color: white;
+        }
+
+        .green.revealed {
+            background-color: green;
+            color: white;
+        }
+
+        .black.revealed {
+            background-color: black;
+            color: white;
+        }
+
+        #board {
+            display: block;
+        }
+
+        #container {
+            max-width: 550px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .word-row {
+            margin-bottom: 5px;
+        }
+
+        .word {
+            display: inline-block;
+            width: 20%;
+            text-align: center;
+        }
+
+        @keyframes addmessage {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .your-turn {
+            border: 3px solid yellow;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="board-container">
+            <div id="board">
+            </div>
+            <div id="normal-player">
+                <button id="pass">Pass</button>
+            </div>
+        </div>
+        <div id="team-lead">
+            <span class="number">1</span>
+            <span class="number">2</span>
+            <span class="number">3</span>
+            <span class="number">4</span>
+            <span class="number">5</span>
+            <span class="number">6</span>
+        </div>
+        <div id="messages">
+        </div>
+        <div id="pregame">
+            <form>
+                <input type="text" id="namn" placeholder="Spelarnamn" />
+                <input type="text" id="ip" placeholder="IP-adress" value="164.90.234.196:8080" />
+                <input type="submit" value="Anslut">
+            </form>
+        </div>
+    </div>
+    <script>
+        let g_your_turn = false;
+        let g_team_lead = false;
+
+        showConnect();
+        hideBoard();
+
+        function hideBoard() {
+            document.querySelector("#board-container").style.display = "none";
+        }
+
+        function showBoard() {
+            document.querySelector("#board-container").style.display = "block";
+        }
+
+        function hideConnect() {
+            document.querySelector("#messages").style.display = "block";
+            document.querySelector("#pregame").style.display = "none";
+        }
+
+        function showConnect() {
+            document.querySelector("#messages").style.display = "none";
+            document.querySelector("#pregame").style.display = "block";
+        }
+
+        function updatePlayerControls() {
+            document.querySelector("#team-lead").style.display = g_team_lead ? "block" : "none";
+            document.querySelector("#normal-player").style.display = g_team_lead ? "none" : "block";
+        }
+
+        let ws = null;
+
+        document.querySelector("form").addEventListener("submit", evt => {
+            evt.preventDefault();
+            const playerName = document.querySelector("#namn").value;
+            const ip = document.querySelector("#ip").value;
+
+            ws = new WebSocket("ws://" + ip);
+
+            ws.onopen = function () {
+                hideConnect();
+                ws.send(playerName);
+            }
+
+            ws.onmessage = function (evt) {
+                const msg = JSON.parse(evt.data);
+                if (msg.type === "board") {
+                    updateBoard(msg.value);
+                    showBoard();
+                } else if (msg.type === "text") {
+                    const p = document.createElement("p");
+                    p.innerHTML = msg.value.escapeHtml().encodeUnderscore();
+                    ;
+                    const messages = document.querySelector("#messages");
+                    if (!messages.firstElementChild?.classList.contains("odd")) {
+                        p.classList.add("odd");
+                    }
+                    messages.insertBefore(p, messages.firstChild);
+                    messages.scrollTop = (-999999);
+                } else if (msg.type === "teamLead") {
+                    g_team_lead = !!msg.value;
+                    updatePlayerControls();
+                } else if (msg.type === "yourTurn") {
+                    g_your_turn = !!msg.value;
+                    updateTurn();
+                } else {
+                    console.warn("Not recognized message", msg);
+                }
+            }
+
+            ws.onclose = function () {
+                showConnect();
+                hideBoard();
+
+                g_your_turn = false;
+                g_team_lead = false;
+                updateTurn();
+                updatePlayerControls();
+            }
+        });
+
+        function updateBoard(boardWords) {
+            let s = "";
+            for (let row = 0; row < 5; row++) {
+                s += "<div class=\"word-row\">"
+                for (let col = 0; col < 5; col++) {
+                    let boardWord = boardWords[row * 5 + col];
+                    let classes = "word " + (boardWord.revealed ? "revealed" : "") + " " + (boardWord.color || "");
+                    s += "<span class=\"" + classes + "\">" + boardWord.word + "</span>";
+                }
+                s += "</div>";
+            }
+            document.querySelector("#board").innerHTML = s;
+        }
+
+        function updateTurn() {
+            document.querySelector("#board-container").classList.remove("your-turn");
+            document.querySelector("#team-lead").classList.remove("your-turn");
+            if (g_your_turn) {
+                if (g_team_lead) {
+                    document.querySelector("#team-lead").classList.add("your-turn");
+                } else {
+                    document.querySelector("#board-container").classList.add("your-turn");
+                }
+            }
+        }
+
+        document.querySelector("#board").addEventListener("click", evt => {
+            const word = evt.target.closest(".word");
+            if (word) {
+                console.log("sending", word.textContent.trim());
+                ws.send(word.textContent.trim());
+            }
+        });
+
+        document.querySelector("#team-lead").addEventListener("click", evt => {
+            const number = evt.target.closest(".number");
+            if (number) {
+                console.log("sending", number.textContent.trim());
+                ws.send(number.textContent.trim());
+            }
+        })
+
+        document.querySelector("#pass").addEventListener("click", evt => {
+            console.log("sending 'pass' command")
+            ws.send("-");
+        });
+
+        String.prototype.escapeHtml = function () {
+            return (this
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            );
+        }
+
+        String.prototype.encodeUnderscore = function () {
+            try {
+                let result = [];
+                let boldState = false;
+                for (let i = 0; i < this.length; i++) {
+                    if (this.charAt(i) != "_") {
+                        result.push(this.charAt(i));
+                        continue;
+                    }
+
+                    if (this.length == i + 1) {
+                        console.warn("encodeUnderscore encountered a _ at the end of the string.");
+                        break;
+                    }
+                    
+                    if(this.charAt(i + 1) == "_") {
+                        result.push("_");
+                    } else if(this.charAt(i + 1) == "."){
+                        result.push(boldState ? "</b>" : "<b>");
+                        boldState = !boldState;
+                    } else {
+                        console.warn("encodeUnderscore encountered unknown combination: _"+this.charAt(i+1));
+                    }
+                    i++;
+                }
+                return result.join("");
+            } catch (e) {
+                console.error("Could not parse underscores",e);
+                return this;
+            }
+        }
+    </script>
+</body>
+
+</html>
